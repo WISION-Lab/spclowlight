@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#SBATCH --partition=wacc
+#SBATCH --cpus-per-task=12
+#SBATCH --gres=gpu:4
+#SBATCH --time=2-0:0:0
+#SBATCH -o log/slurm.%j.%N.out # STDOUT
+#SBATCH -e log/slurm.%j.%N.err # STDERR
+#SBATCH --job-name=bindet
+
+module load anaconda/3
+module load cuda/10.1
+bootstrap_conda
+conda activate p3env
+
+which python
+hostname
+echo $CUDA_VISIBLE_DEVICES
+nvidia-smi
+nvcc --version
+top -b -d1 -n1 | grep -i "%Cpu" #This will only show utilization at the beginning
+
+#pip install -e .
+#export TORCH_CUDA_ARCH_LIST="Maxwell;Maxwell+Tegra;Pascal;Volta;Turing"
+#pip install -e .
+#python demo/demo.py --config-file configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml  --input 000000001296.jpg  --output outputfolder --opts MODEL.WEIGHTS detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl
+
+
+### Training
+EXPERIMENT=outputC30
+LOG_FILE=$EXPERIMENT/train.txt
+
+#python -u tools/train_net.py --config-file $EXPERIMENT/used.yaml SOLVER.IMS_PER_BATCH 2 SOLVER.BASE_LR 0.0025 OUTPUT_DIR $EXPERIMENT 2>&1 | tee $LOG_FILE 
+python -u tools/train_net.py --num-gpus 4 --config-file $EXPERIMENT/used.yaml OUTPUT_DIR $EXPERIMENT 2>&1 | tee $LOG_FILE 
+
