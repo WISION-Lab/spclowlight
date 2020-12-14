@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+#SBATCH --partition=batch_default
+#SBATCH --cpus-per-task=12
+#SBATCH --gres=gpu:1
+#SBATCH --time=48:0:0
+#SBATCH -o log/slurm.%j.%N.out # STDOUT
+#SBATCH -e log/slurm.%j.%N.err # STDERR
+#SBATCH --job-name=minicls
+
+
+module load anaconda/3
+bootstrap_conda
+conda activate p3env
+
+which python
+hostname
+echo $CUDA_VISIBLE_DEVICES
+nvidia-smi
+top -b -d1 -n1 | grep -i "%Cpu" #This will show cpu utilization at the start of the script
+
+
+script(){ 
+	# Change this to "val" to do validation
+	PHASE=train
+	#COUNT=$1
+	COUNT=1
+	EXPERIMENT=../experiments/cub_models/rgb/cub_b16_e100
+	BEST_MODEL=models/model_best.pth.tar
+	LOG_FILE=$EXPERIMENT/$PHASE.txt
+	
+
+	# Mean and Std Deviation values for all generated images sets	
+	MEANINPUT=" 0.095 0.103 0.107 "
+	if [[ $COUNT -eq 100 ]]
+	then
+	STDINPUT=" 0.073 0.070 0.071 "
+	elif [[ $COUNT -eq 60 ]]
+	then
+	STDINPUT=" 0.073 0.070 0.071 "
+	elif [[ $COUNT -eq 30 ]]
+	then
+	STDINPUT=" 0.082 0.080 0.081 "
+	elif [[ $COUNT -eq 10 ]]
+	then
+	STDINPUT=" 0.110 0.111 0.113 "
+	elif [[ $COUNT -eq 5 ]]
+	then
+	STDINPUT=" 0.143 0.146 0.148 "
+	elif [[ $COUNT -eq 2 ]]
+	then
+	STDINPUT=" 0.212 0.219 0.223 "
+	else
+	STDINPUT=" 0.288 0.300 0.305 "
+	fi
+	
+	if [ "$PHASE" = "train" ]; then
+	mkdir -p $EXPERIMENT
+	# Training with clean images	
+	#python -u ./main.py ~/datasets/cub/CUB_200_2011/ --use-resnet18 --cub-training --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 16 --workers 12 | tee $LOG_FILE 
+	# Training with simulated images for SPC
+	python -u ./main.py ~/datasets/cub/CUB_200_2011_average$COUNT/ --use-resnet18 --cub-training --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 16 --workers 12 --mean $MEANINPUT --std $STDINPUT  --lamb 0. --label-file train1.txt | tee $LOG_FILE 
+	fi
+	
+	if [ "$PHASE" = "val" ]; then
+	python -u ./main.py ~/datasets/cub/CUB_200_2011_average$COUNT/ --use-resnet18 --cub-training -e --experiment=../experiments/test --resume=$EXPERIMENT/$BEST_MODEL --mean $MEANINPUT --std $STDINPUT  2>&1 | tee $LOG_FILE 
+	fi
+}
+
+script
+
