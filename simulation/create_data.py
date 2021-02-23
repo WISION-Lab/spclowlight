@@ -45,9 +45,14 @@ for line in im_list[start:end]:
     count_shape = im.shape + (-1,)
     
     for i in range(1):
-#        outfile = BASENEW.replace('60', str(256)) + str(i) + '/' + im_name.replace('jpg', 'png')
-#        if(os.path.exists(outfile)):
-#            continue
+        exists=True
+        for fil in frames:
+            outfile = BASENEW.replace('60', str(fil)) + str(i) + im_name.replace('JPEG', 'png')
+            if(not os.path.exists(outfile)):
+                exists = False
+        if(exists):
+            print('Skipping ', im_name)
+            continue
 
         # Simulate low light conditions by scaling pixel values by 1/1000.
         # Poisson process to simulate photon arrival
