@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #SBATCH --partition=batch_default
-#SBATCH --cpus-per-task=28
+#SBATCH --cpus-per-task=24
 #SBATCH --time=3-0:0:0
 ###SBATCH --nodelist=hopper
+#SBATCH --exclude=euler39
 #SBATCH -o log/slurm.%j.%N.out # STDOUT
 #SBATCH -e log/slurm.%j.%N.err # STDERR
 
@@ -14,14 +15,10 @@ which python
 hostname
 top -b -d1 -n1 | grep -i "%Cpu"
 date
-#for i in {900..999}
-#do
-#	python -u create_data.py $i
-#done
 
-#START=1200000
-#TOTAL=100000
-#EACH=25000
+#START=6000
+#TOTAL=3000
+#EACH=300
 #SPLITS=$TOTAL/$EACH
 #for (( i = 0; i < $SPLITS; i++ ))
 #do
