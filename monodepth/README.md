@@ -9,6 +9,8 @@ This implements training of monocular depth estimation on NYUV2 dataset. Code is
 
 ## Training
 ```bash
-python -u ../../../train.py --data-folder <Dataset folder> --bs 20 --epochs 20 --num-instance 5 --label-file <label-txt-file> --lamb 0.001 --pretrained-weights <imagenet-pretraining-weights> 2>&1 | tee train.txt
+python -u ../../../train.py --data-folder <Dataset folder> --bs 20 --epochs 20 \
+--num-instance 5 --label-file <label-txt-file> --lamb 0.001 \
+--pretrained-weights <imagenet-pretraining-weights> 2>&1 | tee train.txt
 ```
 
