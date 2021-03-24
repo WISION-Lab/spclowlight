@@ -64,6 +64,9 @@ def loadZipToMem(zip_file):
 
 
 def loadToMem(data_folder, txtfile='/nyu2_train.csv'):
+    # Format for CSV file
+    # color image, depth image, image_id
+    # where image_id is same for same image with different PPP
     lines = open(data_folder+txtfile).readlines()
     nyu2_train = [l.strip().split(',') for l in lines]
     #nyu2_train = list((row.split(',') for row in (data['data/nyu2_train.csv']).decode("utf-8").split('\n') if len(row) > 0))
