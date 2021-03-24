@@ -6,24 +6,7 @@ import cv2
 from PIL import Image
 import numpy as np
 
-def load_image(path):
-  # load an image
-  img = cv2.imread(path)
-  img = img[:, :, ::-1]  # BGR -> RGB
-  return img
 
-
-#def load_image_pil(path):
-#  # load an image
-#  img = Image.open(path)
-#  img = img.convert('RGB')
-#  return img
-
-
-#def save_image(path, img):
-#  img = img.copy()[:,:,::-1]
-#  return cv2.imwrite(path, img)
-#
 def resize_image(img, new_size, interpolation=cv2.INTER_LINEAR):
   # resize an image into new_size (w * h) using specified interpolation
   # opencv has a weird rounding issue & this is a hacky fix

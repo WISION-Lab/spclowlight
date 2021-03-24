@@ -17,26 +17,27 @@ import torch.nn as nn
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
-from scipy import stats
 from collections import OrderedDict
 
 import torchvision
 
 from torch.utils.tensorboard import SummaryWriter
-
 from transformations import get_train_transforms, get_val_transforms
 from transformations import get_cub_train_transforms, get_cub_val_transforms
-from transformations import get_imagenet_train_transforms
+from transformations import get_spad_train_transforms, get_spad_val_transforms
+from transformations import get_imagenet_train_transforms, get_imagenet_val_transforms
+from transformations import get_denoiser_train_transforms, get_denoiser_val_transforms
 import torchvision.transforms as transforms
 from custom_dataloader import IMMetricLoader
 from utils import AverageMeter
 from pairs_gen import AllPositivePairSelector
 from collections import defaultdict
-import matplotlib.pyplot as plt
 from losses import OnlineContrastiveLoss
 from torchvision.models.resnet import BasicBlock, Bottleneck
 import networks
 from metric_sampler import RandomIdentitySampler
+from unet import UNet
+from denoiser import *
 
 # the arg parser
 parser = argparse.ArgumentParser(description='PyTorch Image Classification')
@@ -70,32 +71,36 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
-#parser.add_argument('--use-multi-input-resnet18', default=None, type=int,
-#                    help='Use multiple frames as input')
+parser.add_argument('--neg-loss', action='store_true', default=False,
+                    help='use loss on negative pairs')
 parser.add_argument('--use-resnet18', action='store_true',
                     help='Use resnet18 model')
+parser.add_argument('--use-resnet34', action='store_true',
+                    help='Use resnet34 model')
 parser.add_argument('--use-resnet50', action='store_true',
                     help='Use resnet50 model')
-#parser.add_argument('--use-recon', action='store_true',
-#                    help='Use recon input')
-#parser.add_argument('--use-combine', action='store_true',
-#                    help='Use combine model')
-parser.add_argument('--use-contrastive', action='store_true',
-                    help=' model')
-parser.add_argument('--use-contrastive-resnet50', action='store_true',
-                    help='Use contrastive resnet 50 model')
+parser.add_argument('--use-inception-v3', action='store_true',
+                    help='Use inception v3 model')
+parser.add_argument('--use-photon-net', default=None, type=str,
+                    help=' Use Photon Net')
 parser.add_argument('--num-instances', default=None, type=float,
                     help='number of positive samples per sample image')
-parser.add_argument('--use-contrastive-allfeats', action='store_true',
-                    help='Use contrastive loss with all feature oututs, not just final')
-#parser.add_argument('--use-resnet-perceptual', action='store_true',
-#                    help='Use combine model')
-#parser.add_argument('--ave-features', default=None, type=int,
-#                    help='Using average of features')
-#parser.add_argument('--use-twoclassification', action='store_true',
-#                    help='Use two classification losses')
+#parser.add_argument('--use-contrastive-allfeats', default=None, type=str,
+#                    help='Use contrastive loss with all feature oututs, not just final')
+parser.add_argument('--use-student-teacher', default=None, type=str,
+                    help='Use student teacher training. Use location of clean model weights')
+parser.add_argument('--use-dirty-pixel', default=None, type=str,
+                    help='Use dirty pixels for training. Use location of denoiser weights')
+parser.add_argument('--train-denoiser', action='store_true',
+                    help='Train Denoiser')
+parser.add_argument('--pil-loader', action='store_true',
+                    help='Uses Pillow image loader if true, used open-cv otherwose', default=False)
 parser.add_argument('--cub-training', action='store_true',
                     help='training cub classification model, uses cub data augmentation')
+parser.add_argument('--spad-training', action='store_true',
+                    help='training cub classification model using spad data, uses cub data augmentation')
+parser.add_argument('--cars-training', action='store_true',
+                    help='training cars classification model, uses cars data augmentation')
 parser.add_argument('--imagenet-training', action='store_true',
                     help='training imagenet classification, uses imagenet data augmentation')
 parser.add_argument('--gpu', default=0, type=int,
@@ -123,7 +128,6 @@ def main(args):
   else:
     print('Using CPU for computing!')
 
-  # fix the random seeds (the best we can)
   fixed_random_seed = 2019
   torch.manual_seed(fixed_random_seed)
   np.random.seed(fixed_random_seed)
@@ -137,57 +141,84 @@ def main(args):
   normalize = transforms.Normalize(mean=mn, std=st)
   train_transforms = get_train_transforms(normalize)
   val_transforms = get_val_transforms(normalize)
-  if(args.cub_training):
+  if(args.train_denoiser):
+    normalize = transforms.Normalize(mean=mn, std=st)
+    train_transforms = get_denoiser_train_transforms(normalize)
+    val_transforms = get_denoiser_val_transforms(normalize)
+  elif(args.cub_training):
     networks.CLASSES=200
     normalize = transforms.Normalize(mean=mn, std=st)
     train_transforms = get_cub_train_transforms(normalize)
     val_transforms = get_cub_val_transforms(normalize)
-  if(args.imagenet_training):
+  if(args.spad_training):
+    networks.CLASSES=122
+    normalize = transforms.Normalize(mean=mn, std=st)
+    train_transforms = get_spad_train_transforms(normalize)
+    val_transforms = get_spad_val_transforms(normalize)
+  elif(args.cars_training):
+    networks.CLASSES=196
+    normalize = transforms.Normalize(mean=mn, std=st)
+    train_transforms = get_cub_train_transforms(normalize)
+    val_transforms = get_cub_val_transforms(normalize)
+  elif(args.imagenet_training):
+    networks.CLASSES=1000
     normalize = transforms.Normalize(mean=mn, std=st)
     train_transforms = get_imagenet_train_transforms(normalize)
-    val_transforms = get_cub_val_transforms(normalize)
+    val_transforms = get_imagenet_val_transforms(normalize)
   if (not args.evaluate):
     print("Training time data augmentations:")
     print(train_transforms)
 
 
-
-  # set up the model + loss
+  model_clean=None
+  model_teacher=None
   if args.use_resnet18:
     model = torchvision.models.resnet18(pretrained=False)
+    model.fc = nn.Linear(512, networks.CLASSES)
+  elif args.use_resnet34:
+    model = torchvision.models.resnet34(pretrained=False)
     model.fc = nn.Linear(512, networks.CLASSES)
   elif args.use_resnet50:
     model = torchvision.models.resnet50(pretrained=False)
     model.fc = nn.Linear(2048, networks.CLASSES)
-#  elif args.use_recon:
-#    model = networks.MyEnsemble("../experiments/ens12_4conv/models/model_best.pth.tar", "../experiments/reconstructed/rec2_4conv/model_epoch_1.pth")
-  elif args.use_contrastive:
+  elif args.use_inception_v3:
+    model = torchvision.models.inception_v3(pretrained=False, aux_logits=False)
+    model.fc = nn.Linear(2048, networks.CLASSES)
+  elif args.use_photon_net:
     model = networks.ResNetContrast(BasicBlock, [2, 2, 2, 2], networks.CLASSES)
-    #model = networks.ResNetContrastWFC(BasicBlock, [2, 2, 2, 2], networks.CLASSES)
-  elif args.use_contrastive_resnet50:
-    model = networks.ResNetContrast(Bottleneck, [3, 4, 6, 3], networks.CLASSES)
+    if(args.use_photon_net!="random"):
+        model.load_state_dict(torch.load(args.use_photon_net)['state_dict'])
 #  elif args.use_contrastive_allfeats:
-#    model = networks.ContrastAllFeats3(BasicBlock, [2, 2, 2, 2], networks.CLASSES)
-#  elif args.use_combine:
-#    model = networks.MyCombine("../experiments/ens12_4conv/models/model_best.pth.tar", "../experiments/reconstructed/rec2_4conv/model_epoch_1.pth")
-#  elif args.ave_features:
-#    model = networks.MyResNet2(BasicBlock, [2, 2, 2, 2], args.ave_features)
-#  elif args.use_resnet_perceptual:
-#    model = networks.MyResNet3(BasicBlock, [2, 2, 2, 2])
-#    model_clean = networks.MyResNet3(BasicBlock, [2, 2, 2, 2])
-#    model_clean.load_state_dict(torch.load('../experiments/d27d/models/model_best.pth.tar')['state_dict'])
-#    model_clean = model_clean.cuda(args.gpu)
-#    model_clean.eval()
-#    for param in model_clean.parameters():
-#      param.requires_grad = False
+#    model = networks.ResNetContrast2(BasicBlock, [2, 2, 2, 2], networks.CLASSES)
+#    if(args.use_contrastive_allfeats!="random"):
+#        model.load_state_dict(torch.load(args.use_contrastive_allfeats)['state_dict'])
+  elif args.train_denoiser:
+    model = UNet(3,3)
+  elif args.use_dirty_pixel:
+    model = torchvision.models.resnet18(pretrained=False)
+    model.fc = nn.Linear(512, networks.CLASSES)
+    model_clean = UNet(3,3)
+    if(args.evaluate==False):
+        model_clean.load_state_dict(torch.load(args.use_dirty_pixel)['state_dict'])
+        model_clean = model_clean.cuda(args.gpu)
+  elif args.use_student_teacher:
+    model = networks.ResNetPerceptual(BasicBlock, [2, 2, 2, 2], networks.CLASSES)
+    model_teacher = networks.ResNetPerceptual(BasicBlock, [2, 2, 2, 2], networks.CLASSES, teacher_model=True)
+    model_teacher.load_state_dict(torch.load(args.use_student_teacher)['state_dict'])
+    model_teacher = model_teacher.cuda(args.gpu)
+    model_teacher.eval()
+    for param in model_teacher.parameters():
+      param.requires_grad = False
   else:
     print("select correct model")
     exit(0)
 
   criterion1 = nn.CrossEntropyLoss()
-  #criterion3 = nn.MSELoss()
-  ps = AllPositivePairSelector(balance=False)
-  criterion2 = OnlineContrastiveLoss(1., ps)
+  if(args.use_student_teacher or args.train_denoiser or args.use_dirty_pixel):
+    criterion2 = nn.MSELoss()
+  else:
+    ps = AllPositivePairSelector(balance=False)
+    criterion2 = OnlineContrastiveLoss(1., ps)
   # put everthing to gpu
   if args.gpu >= 0:
     model = model.cuda(args.gpu)
@@ -197,7 +228,10 @@ def main(args):
   criterion = [criterion1, criterion2]
   #criterion = [criterion1]
   # setup the optimizer
-  optimizer = torch.optim.SGD(model.parameters(), args.lr,
+  opt_params = model.parameters()
+  if(args.use_dirty_pixel):
+    opt_params = list(model.parameters()) + list(model_clean.parameters())
+  optimizer = torch.optim.SGD(opt_params, args.lr,
                 momentum=args.momentum,
                 weight_decay=args.weight_decay)
 
@@ -226,6 +260,9 @@ def main(args):
         model = model.cpu()
       else:
         model = model.cuda(args.gpu)
+      if(args.use_dirty_pixel):
+        model_clean.load_state_dict(checkpoint['model_clean_state_dict'])
+        model_clean = model_clean.cuda(args.gpu)
 #      # only load the optimizer if necessary
 #      if (not args.evaluate):
 #        args.start_epoch = checkpoint['epoch']
@@ -237,17 +274,26 @@ def main(args):
 
 
   # setup dataset and dataloader
-  train_dataset = IMMetricLoader(args.data_folder,
-                  #split='train', transforms=train_transforms, images_location="")
-                  split='train', transforms=train_transforms, images_location="images", label_file=args.label_file)
   val_dataset = IMMetricLoader(args.data_folder,
-                  #split='val', transforms=val_transforms, images_location="", image_id=False)
-                  split='val', transforms=val_transforms, images_location="images", image_id=False)
-                  #split='val', transforms=val_transforms, images_location="images/0", image_id=False)
+                  split='val', transforms=val_transforms, image_id=False, pil_loader=args.pil_loader, clean_image=args.train_denoiser)
 
-  print('Training Set Size: ', len(train_dataset))
   print('Validation Set Size: ', len(val_dataset))
 
+  val_batch_size = 1 if args.train_denoiser else 50
+  val_loader = torch.utils.data.DataLoader(
+    val_dataset, batch_size=val_batch_size, shuffle=False,
+    num_workers=args.workers, pin_memory=True, sampler=None, drop_last=False)
+  val_dataset.reset_seed()
+  # evaluation
+  if args.evaluate:
+    print("Testing the model ...")
+    cudnn.deterministic = True
+    validate(val_loader, model, -1, args, model_clean)
+    return
+  load_clean_image = args.use_student_teacher or args.train_denoiser or args.use_dirty_pixel
+  train_dataset = IMMetricLoader(args.data_folder,
+                  split='train', transforms=train_transforms, label_file=args.label_file, pil_loader=args.pil_loader, clean_image=load_clean_image)
+  print('Training Set Size: ', len(train_dataset))
   if(args.num_instances):
     train_loader = torch.utils.data.DataLoader(
     train_dataset, batch_size=args.batch_size,
@@ -256,26 +302,24 @@ def main(args):
     train_loader = torch.utils.data.DataLoader(
       train_dataset, batch_size=args.batch_size, shuffle=True,
       num_workers=args.workers, pin_memory=True, sampler=None, drop_last=True)
-  val_loader = torch.utils.data.DataLoader(
-    val_dataset, batch_size=10, shuffle=False,
-    num_workers=args.workers, pin_memory=True, sampler=None, drop_last=False)
-
-  val_dataset.reset_seed()
-  # evaluation
-  if args.evaluate:
-    print("Testing the model ...")
-    cudnn.deterministic = True
-    validate(val_loader, model, -1, args)
-    return
 
   # enable cudnn benchmark
   cudnn.enabled = True
   cudnn.benchmark = True
 
+
+  if(args.train_denoiser):
+    
+    print("Training denoiser ...")
+    for epoch in range(args.start_epoch, args.epochs):
+      train_dataset.reset_seed()
+      train_denoiser(train_loader, val_loader, model, criterion, optimizer, epoch, args)
+    return
+
   model.eval()
   top1 = AverageMeter()
   top5 = AverageMeter()
-  val_acc1 = validate(val_loader, model, 0, args)
+  val_acc1 = validate(val_loader, model, 0, args, model_clean)
   writer.add_scalars('data/top1_accuracy',
      {"train" : top1.avg}, 0)
   writer.add_scalars('data/top5_accuracy',
@@ -286,26 +330,18 @@ def main(args):
   if (args.start_epoch == 0) and (args.warmup_epochs > 0):
     print("Warmup the training ...")
     for epoch in range(0, args.warmup_epochs):
-      acc1 = train(train_loader, val_loader, model, criterion, optimizer, epoch, "warmup", best_acc1, args)
+      acc1 = train(train_loader, val_loader, model, criterion, optimizer, epoch, "warmup", best_acc1, args, model_clean, model_teacher)
 
   # start the training
   print("Training the model ...")
   for epoch in range(args.start_epoch, args.epochs):
     train_dataset.reset_seed()
     # train for one epoch
-    acc1 = train(train_loader, val_loader, model, criterion, optimizer, epoch, "train", best_acc1, args)
+    acc1 = train(train_loader, val_loader, model, criterion, optimizer, epoch, "train", best_acc1, args, model_clean, model_teacher)
 
 
     # save checkpoint
     best_acc1 = max(acc1, best_acc1)
-    # removed save checkpoint code
-
-#def save_checkpoint(state, 
-#                    file_folder, filename='checkpoint.pth.tar'):
-#  """save checkpoint"""
-#  if not os.path.exists(file_folder):
-#    os.mkdir(file_folder)
-#  torch.save(state, os.path.join(file_folder, filename))
 
 
 def save_model(state, file_folder, fname='model_best.pth.tar'):
@@ -316,7 +352,7 @@ def save_model(state, file_folder, fname='model_best.pth.tar'):
   torch.save(state, os.path.join(file_folder, fname))
 
 
-def train(train_loader, val_loader, model, criterion, optimizer, epoch, stage, acc, args):
+def train(train_loader, val_loader, model, criterion, optimizer, epoch, stage, acc, args, model_clean=None, model_teacher=None):
   """Training the model"""
   assert stage in ["train", "warmup"]
   # adjust the learning rate
@@ -327,22 +363,19 @@ def train(train_loader, val_loader, model, criterion, optimizer, epoch, stage, a
   batch_time = AverageMeter()
   data_time = AverageMeter()
   losses = AverageMeter()
-  #losses3 = AverageMeter()
   top1 = AverageMeter()
   top5 = AverageMeter()
   best_acc1 = acc
   # switch to train mode
   model.train()
-
+  if(args.use_dirty_pixel):
+    model_clean.train()
   end = time.time()
   iter_eval = len(train_loader)//args.eval_count
-  #for i, (input2, target2, image_id2) in enumerate(train_loader):
-  for i, (input, target, image_id) in enumerate(train_loader):
-  #for i, (input, target) in enumerate(train_loader):
+  for i, (images, target, image_id) in enumerate(train_loader):
     #input = input2.view(input2.shape[0]*input2.shape[1], input2.shape[2], input2.shape[3], input2.shape[4])
     #target = target2.repeat(5,1).T.reshape(-1)
     #image_id = image_id2.repeat(5,1).T.reshape(-1)
-
     # adjust the learning rate
     if stage == "warmup":
       # warmup: linear scaling
@@ -362,34 +395,57 @@ def train(train_loader, val_loader, model, criterion, optimizer, epoch, stage, a
     # measure data loading time
     data_time.update(time.time() - end)
     if args.gpu >= 0:
-      input = input.cuda(args.gpu, non_blocking=True)
+      images = images.cuda(args.gpu, non_blocking=True)
       target = target.cuda(args.gpu, non_blocking=True)
       image_id = image_id.cuda(args.gpu, non_blocking=True)
-    #output, a, b, c, d, e = model(input)
-#    output2, a2, b2, c2, d2, e2 = model_clean(input)
-    #loss3 = criterion[1](a, a2) + criterion[1](b, b2) + criterion[1](c,c2) + criterion[1](d,d2) + criterion[1](e,e2)
+    if(args.use_student_teacher or args.use_dirty_pixel):
+        input = images[:,0,:,:,:]
+        input_clean = images[:,1,:,:,:]
+    else:
+        input = images
     lamb = args.lamb
-    if(args.use_resnet18):
+    if(args.use_resnet18 or args.use_resnet34 or args.use_resnet50 or args.use_inception_v3):
         output = model(input)
         loss1 = criterion[0](output, target)
         loss = loss1
+    elif(args.use_dirty_pixel):
+        output_clean = model_clean(input)
+        output = model(output_clean)
+        loss1 = criterion[0](output, target)
+        loss = loss1
+        if(lamb>0):
+            loss2 = criterion[1](output_clean, input_clean)
+            loss = loss1 + loss2*lamb
+    elif(args.use_student_teacher):
+        output, feat = model(input)
+        loss1 = criterion[0](output, target)
+        loss = loss1
+        if(lamb>0):
+            output_clean, feat_clean = model_teacher(input_clean)
+            loss2 = 0
+            for x in range(len(feat)):
+                loss2 += criterion[1](feat[x], feat_clean[x]) 
+        loss = loss1 + loss2*lamb
     else:
         output, feat = model(input)
         loss1 = criterion[0](output, target)
-        loss2b = criterion[1](feat, image_id)
-        if(epoch>=5):
-        #if(epoch>=50):
-            loss = loss1 + (loss2b)*lamb
-        else:
-            loss = loss1
+        loss = loss1
+        if(lamb>0):
+            if(args.use_photon_net):    
+                loss2 = criterion[1](feat, image_id, neg_loss=args.neg_loss)
+#            elif(args.use_contrastive_allfeats):    
+#                loss2 = 0
+#                for x in range(len(feat)):
+#                    loss2 += criterion[1](feat[x], image_id, neg_loss=args.neg_loss) 
+            else:
+                print('Lambda is not used')
+                exit(0)
+            loss = loss1 + loss2*lamb
 
-    #loss2 = criterion[1](a, image_id) + criterion[1](b, image_id) + criterion[1](c, image_id) + criterion[1](d, image_id) + criterion[1](e, image_id)
-    #print(loss1, loss2)
 
     # measure accuracy and record loss
     acc1, acc5 = accuracy(output, target, topk=(1, 5))
     losses.update(loss.item(), input.size(0))
-    #losses3.update(loss2b.item(), input.size(0))
     top1.update(acc1[0], input.size(0))
     top5.update(acc5[0], input.size(0))
 
@@ -418,16 +474,12 @@ def train(train_loader, val_loader, model, criterion, optimizer, epoch, stage, a
       if stage == "train":
         writer.add_scalar('data/training_loss',
           losses.val, epoch * num_iters + i)
-        #writer.add_scalar('data/contrastive_loss',
-        #  losses3.val, epoch * num_iters + i)
         writer.add_scalar('data/learning_rate',
           lr, epoch * num_iters + i)
 
-    if(stage=="warmup"):
-        continue
     if (i+1)%iter_eval==0:
         # evaluate on validation set
-        val_acc1 = validate(val_loader, model, epoch*args.eval_count+(i+1)/iter_eval, args)
+        val_acc1 = validate(val_loader, model, epoch*args.eval_count+(i+1)/iter_eval, args, model_clean)
         # log top-1/5 acc
         writer.add_scalars('data/top1_accuracy',
           {"train" : top1.avg}, epoch*args.eval_count+(i+1)/iter_eval)
@@ -436,6 +488,8 @@ def train(train_loader, val_loader, model, criterion, optimizer, epoch, stage, a
         top1 = AverageMeter()
         top5 = AverageMeter()
         model.train()
+        if(args.use_dirty_pixel):
+            model_clean.train()
         if(best_acc1<val_acc1):
             best_acc1 = val_acc1
             state_dic = {
@@ -443,8 +497,9 @@ def train(train_loader, val_loader, model, criterion, optimizer, epoch, stage, a
               'best_acc1': best_acc1,
             }
             state_dic['state_dict']=model.state_dict()
+            if(args.use_dirty_pixel):
+                state_dic['model_clean_state_dict']=model_clean.state_dict()
             save_model(state_dic, args.experiment + "/models")
-            #save_model(state_dic, args.experiment + "/models", str(i)+'.pth.tar')
 
   # print the learning rate
   print("[Stage {:s}]: Epoch {:d} finished with lr={:f}".format(
@@ -453,8 +508,7 @@ def train(train_loader, val_loader, model, criterion, optimizer, epoch, stage, a
 
 
 
-
-def validate(val_loader, model, val_iter, args):
+def validate(val_loader, model, val_iter, args, model_clean=None):
   """Test the model on the validation set"""
   batch_time = AverageMeter()
   top1 = AverageMeter()
@@ -462,28 +516,32 @@ def validate(val_loader, model, val_iter, args):
 
   # switch to evaluate mode (autograd will still track the graph!)
   model.eval()
-
+  if(model_clean):
+    model_clean.eval()
   # disable/enable gradients
   grad_flag = False
   with torch.set_grad_enabled(grad_flag):
     end = time.time()
     # loop over validation set
     for i, (input, target) in enumerate(val_loader):
-      #input = input2.view(input2.shape[0]*input2.shape[1], input2.shape[2], input2.shape[3], input2.shape[4])
       if args.gpu >= 0:
         input = input.cuda(args.gpu, non_blocking=False)
         target = target.cuda(args.gpu, non_blocking=False)
 
-      output = model(input)
-      #output, _, __, ___, ____, ____ = model(input)
-      #output = output.view(output.shape[0]//args.eval_count, args.eval_count, output.shape[1]).mean(axis=1)
-      #print(output.shape)
+      if(args.use_dirty_pixel):
+        output_clean = model_clean(input)
+        output = model(output_clean)
+      else:
+        output = model(input)
       # test time augmentation (minor performance boost)
       if args.evaluate:
         flipped_input = torch.flip(input, (3,))
-        #flipped_output, _, __, ___, ____, ____ = model(flipped_input)
-        flipped_output = model(flipped_input)
-        #flipped_output = flipped_output.view(flipped_output.shape[0]//args.eval_count, args.eval_count, flipped_output.shape[1]).mean(axis=1)
+        if(args.use_dirty_pixel):
+          output_clean = model_clean(flipped_input)
+          flipped_output = model(output_clean)
+        else:
+          flipped_output = model(flipped_input)
+        #flipped_output = model(flipped_input)
         output = 0.5 * (output + flipped_output)
 
       # measure accuracy and record loss

@@ -1,6 +1,6 @@
-# Image Classification using simulated images for SPCs
+# Image Classification on noisy images from SPADs
 
-This implements training of image classification models on CUB, miniplaces and imagenet dataset. Modified from pytorch examples
+This implements training of image classification using Photon Net on noisy images from spads. Modified from pytorch examples
 ## Requirements
 
 - Install PyTorch ([pytorch.org](http://pytorch.org))
@@ -8,11 +8,8 @@ This implements training of image classification models on CUB, miniplaces and i
 - Download the dataset from official sources and use simulation script to generate low-light SPC images.
 
 ## Training
-
-To train a model, use `bfile` script . Make sure to update the dataset location and desired parameters in the script before starting the training.
-
-## Usage
 ```bash
-./bfile
+python -u ./main.py <dataset_folder>  --cub-training  --use-photon-net  <pretrained_weights_on_clean_images_location> --experiment=photon_net_run1 2>&1 --epochs 100 --b 80 --eval-count 1 --workers 8 --mean $MEANINPUT  --lamb 0.5 --num-instances 5 --label-file <label_txt_file> | tee train.txt
 ```
+
 

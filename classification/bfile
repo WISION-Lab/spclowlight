@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH --partition=batch_default
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
-#SBATCH --time=48:0:0
+###SBATCH --nodelist=hopper
+###SBATCH --nodelist=euler56,euler51,euler52
+#SBATCH --time=140:0:0
+#SBATCH --exclude=euler50,mirzakhani
 #SBATCH -o log/slurm.%j.%N.out # STDOUT
 #SBATCH -e log/slurm.%j.%N.err # STDERR
 #SBATCH --job-name=minicls
@@ -10,7 +13,7 @@
 
 module load anaconda/3
 bootstrap_conda
-conda activate p3env
+conda activate minienv
 
 which python
 hostname
@@ -19,52 +22,56 @@ nvidia-smi
 top -b -d1 -n1 | grep -i "%Cpu" #This will show cpu utilization at the start of the script
 
 
-script(){ 
-	# Change this to "val" to do validation
-	PHASE=train
-	#COUNT=$1
-	COUNT=1
-	EXPERIMENT=../experiments/cub_models/rgb/cub_b16_e100
-	BEST_MODEL=models/model_best.pth.tar
-	LOG_FILE=$EXPERIMENT/$PHASE.txt
-	
+PHASE=train
+COUNT=$1
+#EXPERIMENT=../experiments/spad_models_updated2/a${COUNT}_Xframe/a${COUNT}_4frame+cl256_fixed/pretrained_nonorm_diffaug_only_lamb05_e100_nowarmup
+#EXPERIMENT=../experiments/spad_models_updated2/a${COUNT}_Xframe/a${COUNT}_perceptual/perceptualfixed_lamb10
+EXPERIMENT=../experiments/cub_models/cub_a${COUNT}_Xframe/a${COUNT}_4frame+cl256_fixed/pretrained_nonorm_diffaug_only_lamb05_e100_nowarmup_repeat
+#EXPERIMENT=../experiments/cub_models/cub_a${COUNT}_Xframe/resnet50_a${COUNT}_1frame_nostd_repeat
+#EXPERIMENT=../experiments/cub_models/denoiser/a${COUNT}_flip_rotate_crop64_e50
+#EXPERIMENT=../experiments/cub_models/cub_a${COUNT}_Xframe/a${COUNT}_dirtypixel_all/flip_rotate_crop64_e10_lamb01_nowarmup_repeat2
+#EXPERIMENT=../experiments/cub_models/cub_a${COUNT}_Xframe/a${COUNT}_perceptual/a${COUNT}_perceptualfixed_lamb10_nostd_nowarmup_repeat
+#EXPERIMENT=../experiments/cars_models/cars_a${COUNT}_Xframe/a${COUNT}_perceptual_all/a${COUNT}_perceptual_lamb10_nostd
+#EXPERIMENT=../experiments/cars_models/cars_a${COUNT}_Xframe/a${COUNT}_4frame+cl256_fixed/pretrained_nonorm_diffaug_only_lamb01_e400_nowarmup
+BEST_MODEL=models/model_best.pth.tar
+LOG_FILE=$EXPERIMENT/$PHASE.txt
+echo $SCRATCH > $LOG_FILE	
 
-	# Mean and Std Deviation values for all generated images sets	
-	MEANINPUT=" 0.095 0.103 0.107 "
-	if [[ $COUNT -eq 100 ]]
-	then
-	STDINPUT=" 0.073 0.070 0.071 "
-	elif [[ $COUNT -eq 60 ]]
-	then
-	STDINPUT=" 0.073 0.070 0.071 "
-	elif [[ $COUNT -eq 30 ]]
-	then
-	STDINPUT=" 0.082 0.080 0.081 "
-	elif [[ $COUNT -eq 10 ]]
-	then
-	STDINPUT=" 0.110 0.111 0.113 "
-	elif [[ $COUNT -eq 5 ]]
-	then
-	STDINPUT=" 0.143 0.146 0.148 "
-	elif [[ $COUNT -eq 2 ]]
-	then
-	STDINPUT=" 0.212 0.219 0.223 "
-	else
-	STDINPUT=" 0.288 0.300 0.305 "
-	fi
-	
-	if [ "$PHASE" = "train" ]; then
-	mkdir -p $EXPERIMENT
-	# Training with clean images	
-	#python -u ./main.py ~/datasets/cub/CUB_200_2011/ --use-resnet18 --cub-training --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 16 --workers 12 | tee $LOG_FILE 
-	# Training with simulated images for SPC
-	python -u ./main.py ~/datasets/cub/CUB_200_2011_average$COUNT/ --use-resnet18 --cub-training --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 16 --workers 12 --mean $MEANINPUT --std $STDINPUT  --lamb 0. --label-file train1.txt | tee $LOG_FILE 
-	fi
-	
-	if [ "$PHASE" = "val" ]; then
-	python -u ./main.py ~/datasets/cub/CUB_200_2011_average$COUNT/ --use-resnet18 --cub-training -e --experiment=../experiments/test --resume=$EXPERIMENT/$BEST_MODEL --mean $MEANINPUT --std $STDINPUT  2>&1 | tee $LOG_FILE 
-	fi
-}
+MEANINPUT=" 0.095 0.103 0.107 "
+STDINPUT=" 1. 1. 1. "	
+if [ "$PHASE" = "train" ]; then
+mkdir -p $EXPERIMENT
+#python -u ./main.py ~/datasets/cub/CUB_200_2011/ --use-resnet18 --cub-training --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 16 --workers 8 | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/cub/CUB_200_2011_average$COUNT/ --use-resnet18 --cub-training --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 16 --eval-count 1 --workers 8 --mean $MEANINPUT --std $STDINPUT  --label-file train1.txt | tee $LOG_FILE 
+python -u ./main.py ~/datasets/cub/CUB_200_2011_average$COUNT/ --cub-training  --use-photon-net  ../experiments/cub_models/cub_a256_Xframe/a256_1frame_nostd/models/model_best.pth.tar --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 80 --eval-count 1 --workers 8 --mean $MEANINPUT --std $STDINPUT  --lamb 0.5 --num-instances 5 --label-file train4+cl256.txt | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/cub/CUB_200_2011_average$COUNT/ --use-student-teacher ../experiments/cub_models/cub_a256_Xframe/a256_1frame_nostd/models/model_best.pth.tar  --cub-training --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 16 --eval-count 1 --workers 8 --mean $MEANINPUT --std $STDINPUT  --lamb 10. --label-file train1.txt | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/cub/CUB_200_2011_average$COUNT/  --train-denoiser   --cub-training  --experiment=$EXPERIMENT 2>&1 --epochs 50 --b 32 --eval-count 1 --workers 8 --mean $MEANINPUT --std $STDINPUT --label-file train1.txt | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/cub/CUB_200_2011_average$COUNT/ --use-dirty-pixel ../experiments/cub_models/denoiser/a1_flip_rotate_crop64_e10/models/model_best.pth.tar --cub-training --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 16 --eval-count 1 --workers 8 --mean $MEANINPUT --std $STDINPUT  --lamb 0.01 --label-file train1.txt | tee $LOG_FILE 
 
-script
+
+#python -u ./main.py ~/datasets/cars/cars196/ --use-resnet18 --cars-training --experiment=$EXPERIMENT 2>&1 --epochs 400 --b 16 --workers 8 | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/cars/cars196_average$COUNT/ --use-resnet18 --cars-training --experiment=$EXPERIMENT 2>&1 --epochs 80 --b 16 --eval-count 5 --workers 8 --mean $MEANINPUT --std $STDINPUT | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/cars/cars196_average$COUNT/ --use-contrastive ../experiments/cars_models/cars_a256_Xframe/a256_1frame_nostd/models/model_best.pth.tar --cars-training    --experiment=$EXPERIMENT 2>&1 --epochs 400 --b 80 --eval-count 1 --workers 8 --mean $MEANINPUT --std $STDINPUT --lamb 0.1 --num-instances 5 --label-file train4+cl256.txt  | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/cars/cars196_average$COUNT/ --use-perceptual ../experiments/cars_models/cars_a256_Xframe/a256_1frame_nostd/models/model_best.pth.tar  --cars-training --experiment=$EXPERIMENT 2>&1 --epochs 400 --b 16 --eval-count 1 --workers 8 --mean $MEANINPUT --std $STDINPUT  --lamb 10. --label-file train1.txt | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/cars/cars196_average$COUNT/ --use-contrastive-allfeats ../experiments/cars_models/cars_a256_Xframe/a256_1frame_nostd/models/model_best.pth.tar  --cars-training --experiment=$EXPERIMENT 2>&1 --epochs 400 --b 80 --eval-count 1 --workers 8 --mean $MEANINPUT --std $STDINPUT --lamb 0.1 --num-instances 5 --label-file train4+cl256.txt  | tee $LOG_FILE 
+
+
+#python -u ./main.py ~/datasets/imagenet_generated/average${COUNT}/ --use-resnet34 --imagenet-training --experiment=$EXPERIMENT 2>&1 --epochs 90 --b 256 --pil-loader --workers 8 --mean $MEANINPUT --std $STDINPUT | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/imagenet/ --use-densenet121 --imagenet-training --experiment=$EXPERIMENT 2>&1 --epochs 90 --b 64 --pil-loader --workers 8 | tee $LOG_FILE 
+
+
+#MEANINPUT=" 0.144 0.144 0.144  "
+#python -u ./main.py ~/datasets/spad_data/spad_images/nohot01_cropped_average${COUNT} --use-resnet18 --spad-training --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 16 --workers 8  --mean $MEANINPUT --std $STDINPUT  --label-file train1.txt| tee $LOG_FILE 
+#python -u ./main.py ~/datasets/spad_data/spad_images/nohot01_cropped_average$COUNT/ --use-perceptual ../experiments/spad_models_updated2/a256_Xframe/a256_1frame/models/model_best.pth.tar  --spad-training --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 16 --eval-count 1 --workers 8 --mean $MEANINPUT --std $STDINPUT  --lamb 10. --label-file train1.txt | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/spad_data/spad_images/nohot01_cropped_average$COUNT/ --use-contrastive  ../experiments/spad_models_updated2/a256_Xframe/a256_1frame/models/model_best.pth.tar --spad-training --experiment=$EXPERIMENT 2>&1 --epochs 100 --b 80 --eval-count 1 --workers 8 --mean $MEANINPUT --std $STDINPUT  --lamb 0.5 --num-instances 5 --label-file train4+cl256.txt | tee $LOG_FILE 
+fi
+
+if [ "$PHASE" = "val" ]; then
+#python -u ./main.py ~/datasets/cub/CUB_200_2011_average$COUNT/ --use-dirty-pixel aa --cub-training -e --experiment=../experiments/test --resume=$EXPERIMENT/$BEST_MODEL --mean $MEANINPUT --std $STDINPUT  2>&1 | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/cub/CUB_200_2011_average$COUNT/ --use-resnet18 --cub-training -e --experiment=../experiments/test --resume=$EXPERIMENT/$BEST_MODEL --mean $MEANINPUT --std $STDINPUT  2>&1 | tee $LOG_FILE 
+#python -u ./main.py ~/datasets/cars/cars196/ --use-resnet18 --cars-training -e --experiment=../experiments/test --resume=$EXPERIMENT/$BEST_MODEL  2>&1 | tee $LOG_FILE 
+python -u ./main.py ~/datasets/cars/cars196_average$COUNT/ --use-resnet18 --cars-training -e --experiment=../experiments/test --resume=$EXPERIMENT/$BEST_MODEL --mean $MEANINPUT --std $STDINPUT  2>&1 | tee $LOG_FILE 
+#MEANINPUT=" 0.144 0.144 0.144  "
+#python -u ./main.py ~/datasets/spad_data/spad_images/nohot01_cropped_average$COUNT/ --use-resnet18 --spad-training -e --experiment=../experiments/test --resume=$EXPERIMENT/$BEST_MODEL --mean $MEANINPUT --std $STDINPUT  2>&1 | tee $LOG_FILE 
+fi
 
