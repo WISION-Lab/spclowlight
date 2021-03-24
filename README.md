@@ -12,3 +12,12 @@ This repo implements the code for Photon Net
 ```
 
 
+## Requirements/Installation
+
+- Install PyTorch ([pytorch.org](http://pytorch.org))
+- `pip install -r requirements.txt`
+
+### How to Use
+- Download the datasets (CUB/CARS/NYUV2/others) from the official sources and use scripts in `simulation` to simulate noisy images from SPAD 
+- Use `classification` and `monodepth` code for image classifiation and monocular depth estimation using Photon Net 
+
