@@ -5,7 +5,7 @@ from __future__ import absolute_import
 import cv2
 from PIL import Image
 import numpy as np
-
+import torch
 
 def resize_image(img, new_size, interpolation=cv2.INTER_LINEAR):
   # resize an image into new_size (w * h) using specified interpolation
@@ -39,3 +39,22 @@ class AverageMeter(object):
     self.sum += val * n
     self.count += n
     self.avg = self.sum / self.count
+
+
+def accuracy(output, target, topk=(1,)):
+  """Computes the accuracy over the k top predictions"""
+  with torch.no_grad():
+    maxk = max(topk)
+    batch_size = target.size(0)
+
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+    res = []
+    for k in topk:
+      correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+      res.append(correct_k.mul_(100.0 / batch_size))
+    return res
+
+
