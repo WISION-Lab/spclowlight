@@ -2,9 +2,9 @@ import numpy as np
 import os, sys
 import cv2
 # Original Clean Images
-BASE = '/srv/home/bhavya/datasets/imagenet/'
+BASE = '/srv/home/bhavya/datasets/cub/CUB_200_2011/'
 # Generated Images for SPC
-BASENEW = BASE.replace('imagenet', 'imagenet_generated/average60')
+BASENEW = BASE.replace('CUB_200_2011', 'CUB_200_2011_average60')
 # number of frames to average
 frames = [1, 4, 16, 64, 256]
 
@@ -49,14 +49,16 @@ for line in im_list[start:end]:
             recon_image = np.mean(b_counts[:,:,:,0:fil], axis=3)
             #mn += np.mean(recon_image, axis=(0,1))
             #mn2 += np.mean(recon_image**2, axis=(0,1))
-            outfile = BASENEW.replace('60', str(fil)) + str(i) + im_name.replace('JPEG', 'png')
-            #outfile = BASENEW.replace('60', str(fil)) + 'images/' + str(i) + '/' + im_name[7:].replace('jpg', 'png')
+            #outfile = BASENEW.replace('60', str(fil)) + str(i) + im_name.replace('JPEG', 'png')
+            outfile = BASENEW.replace('60', str(fil)) + 'images/' + str(i) + '/' + im_name[7:].replace('jpg', 'png')
             #print(outfile)
             #exit(0)
+            #factor = 256*256 - 1
             directory = os.path.dirname(outfile)
             if not os.path.exists(directory):
                 os.makedirs(directory)
-            cv2.imwrite(outfile, recon_image*255.0)
+            #cv2.imwrite(outfile, (recon_image*factor).astype(np.uint16))
+            cv2.imwrite(outfile, recon_image*255.)
 
 
 #size = end-start
