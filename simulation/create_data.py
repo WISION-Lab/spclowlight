@@ -44,7 +44,13 @@ for line in im_list[start:end]:
         photon_counts = np.random.poisson(im.flatten()/1000.0, size=(TOTAL_FRAMES, im.size)).T
         photon_counts = photon_counts.reshape(count_shape)
         # Photon counts is converted to binary frames
+        #lenx = im.shape[0]//200
+        #leny = im.shape[1]//200
         b_counts=np.where(photon_counts>=1, 1, 0)
+        #for x in range(TOTAL_FRAMES):
+        #    M = np.float32([[1, 0, (x//20)*lenx], [0, 1, (x//20)*leny]])
+        #    shifted = cv2.warpAffine(b_counts[:,:,:,x].astype(np.uint8), M, (im.shape[1], im.shape[0]))
+        #    b_counts[:,:,:,x] = np.array(shifted.data)
         for fil in frames:
             recon_image = np.mean(b_counts[:,:,:,0:fil], axis=3)
             #mn += np.mean(recon_image, axis=(0,1))
