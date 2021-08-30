@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
-#SBATCH --partition=batch_default
+#SBATCH --partition=research
 #SBATCH --cpus-per-task=24
-#SBATCH --time=3-0:0:0
-###SBATCH --nodelist=hopper
-#SBATCH --exclude=euler39
+#SBATCH --time=100:0:0
 #SBATCH -o log/slurm.%j.%N.out # STDOUT
 #SBATCH -e log/slurm.%j.%N.err # STDERR
+#SBATCH --job-name=simdata
 
-module load anaconda/3
+module load anaconda/mini/4.9.2
+module load nvidia/cuda/11.3.1
 bootstrap_conda
-conda activate p3env
+conda activate minienv
 
 which python
 hostname
-top -b -d1 -n1 | grep -i "%Cpu"
+echo $CUDA_VISIBLE_DEVICES
+nvidia-smi
+top -b -d1 -n1 | grep -i "%Cpu" #This will show cpu utilization at the start of the script
 date
 
 #START=6000
