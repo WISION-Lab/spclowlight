@@ -1,5 +1,5 @@
 ## Simulating Noisy dataset from SPAD cameras
-### Simulating raw images for SPC under low-light conditions
+#### Simulating raw images for SPC under low-light conditions
 
 * Download dataset from official sources and extract it to use as clean image.
 * Use create\_data.py script to simulate low-light images
@@ -20,6 +20,3 @@ images/001.Black_footed_Albatross/Black_Footed_Albatross_0031_100.png 0 3
 ................
 ```
 where image_id is same for all noisy images with same scene content.
-
-
-
