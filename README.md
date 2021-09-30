@@ -1,6 +1,6 @@
 ## Photon-Starved Scene Inference using Single Photon Cameras
 
-**ICCV 2021** <br> [Arxiv](https://arxiv.org/abs/2107.11001) &nbsp; [Project](https://wisionlab.cs.wisc.edu/project/photon-net/)
+**ICCV 2021** <br> [Arxiv](https://arxiv.org/abs/2107.11001) &nbsp; [Project](https://wisionlab.cs.wisc.edu/project/photon-net/) &nbsp; [Video](https://www.youtube.com/watch?v=r1YvHnGbi6k)
 
 ![teaser](figures/ArchitectureVersatile-0.png)
 
