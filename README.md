@@ -32,3 +32,13 @@ Scene understanding under low-light conditions is a challenging problem. This is
 
 
 ### Citation
+```
+@InProceedings{Goyal_2021_ICCV,
+    author    = {Goyal, Bhavya and Gupta, Mohit},
+    title     = {Photon-Starved Scene Inference Using Single Photon Cameras},
+    booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+    month     = {October},
+    year      = {2021},
+    pages     = {2512-2521}
+}
+```
