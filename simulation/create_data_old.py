@@ -2,11 +2,10 @@ import numpy as np
 import os, sys
 import cv2
 import torch
-from collections import defaultdict
 # Original Clean Images
-BASE = '/srv/home/bhavya/datasets/cityscapeszips/interpolate/'
+BASE = '/srv/home/bhavya/datasets/reds/'
 # Generated Images for SPC
-BASENEW = BASE.replace('interpolate', 'interpolate_dark')
+BASENEW = BASE.replace('reds', 'reds_dark')
 # number of frames to average
 #frames = [1, 4, 16, 64, 256]
 frames = [1]
@@ -19,7 +18,7 @@ frames = [1]
 
 imtxt = BASE + 'train.txt'
 im_list = open(imtxt, 'r').readlines()
-im_list = [x.strip() for x in im_list]
+
 #TOTAL_FRAMES=256
 start=0
 end=len(im_list)
@@ -41,34 +40,28 @@ for i in range(251, 256):
 #buffer_tensor = buffer_tensor.permute(0,2,3,1).reshape(-1, C).mul_(255).add_(0.5).clamp_(0, 255).long() # bad naming to save GPU memory
 #buffer_tensor = torch.gather(crf_inv, 0, buffer_tensor).reshape(-1,H,W,C).permute(0,3,1,2)
 
-#filenames = []
-#for i in range(100, 109):
-#    filenames.append('00000'+str(i)+'.png')
-#    #filenames.append('00000100.png')
-#scenes = defaultdict(list)
-#for im in im_list:
-#    
-#    scenes[
-
+filenames = []
+for i in range(100, 109):
+    filenames.append('00000'+str(i)+'.png')
+    #filenames.append('00000100.png')
 
 #filenames = ["00000100.png", "00000101.png", "00000102.png", "00000103.png", "00000104.png", "00000105.png", "00000106.png", "00000107.png", "00000108.png"]
 #filenames = ["00000100.png"]*100#, "00000100.png", "00000100.png", "00000100.png", "00000100.png", "00000100.png", "00000100.png", "00000100.png", "00000100.png"]
-for idx, line in enumerate(im_list[start:end]):
+for line in im_list[start:end]:
     l = line.strip().split()
     #im_name = 'images/'+l[0]
     #im_name = l[0].replace('data/','')
     im_name = l[0]
     file_name = im_name.split('/')[-1]
-    if(idx%11!=5):#file_name!='00000100.png'):
+    if(file_name!='00000100.png'):
          continue
     all_photon_counts = []
-    filenames = im_list[idx-5:idx+6]
     for filename in filenames:
-        #im_filename = '/'.join(im_name.split('/')[:-1])+'/'+filename
-        im_filename = filename
+        im_filename = '/'.join(im_name.split('/')[:-1])+'/'+filename
         print(im_filename)
         # Reading original clean image
         im = cv2.imread(BASE+im_filename)
+
         im = im.transpose(2,0,1)
         crf_im = np.zeros_like(im).astype(np.float64)
         crf_im[0,:,:] = np.take(crf_inv[:,0], im[0,:,:])
@@ -86,8 +79,10 @@ for idx, line in enumerate(im_list[start:end]):
         all_photon_counts.append(photon_counts)
     all_photon_counts = np.array(all_photon_counts)
     #for idx in [0, 1, 40, 200]:#range(200,210):
-    for idx, filename in enumerate(filenames[5:]):
-            recon_image = np.sum(all_photon_counts[5-idx:5+(idx)+1,:,:,:]*1.0, axis=0)
+    for idx, filename in enumerate(filenames[4:]):
+            if(idx!=0):
+                continue
+            recon_image = np.sum(all_photon_counts[4-idx:4+(idx)+1,:,:,:]*1.0, axis=0)
             r_i = np.sort(recon_image.flatten())
             scale = r_i[int(r_i.shape[0]*0.97)]
             print(scale)
@@ -100,9 +95,8 @@ for idx, line in enumerate(im_list[start:end]):
 
             #recon_image = np.clip(recon_image, 0, 255)
             #outfile = BASENEW.replace('60', str(fil)) + str(i) + im_name.replace('JPEG', 'png')
-            #im_filename = '/'.join(im_name.split('/')[:-1]) + '/' + filenames[5]
-            im_filename = filenames[5].split('/')[-1]
-            outfile = BASENEW.replace('interpolate_dark', 'interpolate_dark/'+str(idx)) + '/' + im_filename
+            im_filename = '/'.join(im_name.split('/')[:-1]) + '/' + filenames[4]
+            outfile = BASENEW.replace('reds_dark', 'reds_dark'+str(idx)) + '/' + im_filename
             directory = os.path.dirname(outfile)
             if not os.path.exists(directory):
                 os.makedirs(directory)

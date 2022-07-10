@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #SBATCH --partition=research
-#SBATCH --cpus-per-task=24
+#SBATCH --cpus-per-task=32
 #SBATCH --time=100:0:0
+###SBATCH --nodelist=euler21
 #SBATCH -o log/slurm.%j.%N.out # STDOUT
 #SBATCH -e log/slurm.%j.%N.err # STDERR
 #SBATCH --job-name=simdata
@@ -11,16 +12,20 @@ module load nvidia/cuda/11.3.1
 bootstrap_conda
 conda activate minienv
 
+source ~/.bashrc
+#module load blas/openblas/0.3.19
 which python
 hostname
 echo $CUDA_VISIBLE_DEVICES
+echo $LD_LIBRARY_PATH
+echo $BLAS
 nvidia-smi
 top -b -d1 -n1 | grep -i "%Cpu" #This will show cpu utilization at the start of the script
 date
 
-#START=6000
-#TOTAL=3000
-#EACH=300
+#START=$1
+#TOTAL=10000
+#EACH=1000
 #SPLITS=$TOTAL/$EACH
 #for (( i = 0; i < $SPLITS; i++ ))
 #do
@@ -29,6 +34,6 @@ date
 #	python -u create_data.py $BEGIN $(($BEGIN+$EACH)) &
 #done
 
-python -u create_data.py $1 $2
+python -u create_data_old.py $1 $2
 
 wait
